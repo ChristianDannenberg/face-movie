@@ -1,121 +1,92 @@
-# Face-Movie
+# Face-Movie – Face Select Extension
 
-> **Take a selfie every morning. Years later, watch yourself grow up.**
+A privacy-friendly local fork of **Face-Movie** focused on real photo archives: group photos, small faces, difficult scans, and manual control over which photos actually enter the movie.
 
-Face-Movie turns a folder of portraits into a smoothly morphed time-lapse
-video. Faces stay locked in place — eyes at the same spot in every frame —
-while expressions, lighting, and the years flow past.
+This fork keeps the original Face-Movie morphing pipeline and adds a review step before rendering.
 
-![demo](docs/demo.gif)
+## Added in this fork
 
-## What it's for
+- Detect up to **10 faces per photo** and select the correct face in the Web UI.
+- Multi-pass face detection: normal, sensitive, 2× upscale, CLAHE contrast enhancement, and overlapping zoom tiles.
+- Manual crop fallback for difficult or very small faces.
+- **Include / exclude each photo after analysis.** Photos without a detected face start excluded; a successful manual crop enables them again.
+- Configurable still-image pause between morphs, specified in seconds and converted using the selected output FPS.
+- CPU-first Docker setup with `libegl1` and `libgles2`, tested for headless/NAS-style deployments.
+- Processing stays local; uploaded photos are stored only in the temporary job directory.
 
-- The "one selfie a day" project, finally watchable
-- Beard, hair-loss, weight-change, gym, or makeup journeys
-- Pregnancy progression, post-surgery recovery
-- Watching kids grow up
-- Any series of portraits where the face moves around between shots
+## Web workflow
 
-## Why?
+1. Select photos or a folder.
+2. Click **Gesichter analysieren**.
+3. Review each image:
+   - click the correct face box;
+   - disable **Im Video verwenden** when the photo should be skipped;
+   - if no face is found, choose **Bereich wählen** and draw a generous box around the face/head.
+4. Set transition frames, FPS and optional pause.
+5. Render and download the MP4.
 
-Google Picasa 3 used to ship a feature called **Face Movie** that did
-exactly this — align faces across a batch of photos and stitch them into
-a smooth video. Picasa was discontinued in 2016, and nothing in the major
-photo apps has replaced it.
+At least two photos must remain enabled.
 
-This project began in August 2016. The author started taking a selfie
-every morning at 9am, planning to one day watch a smooth time-lapse of
-how he changed. Five years and 750 photos later, a naive slideshow looked
-like a strobe — head in a different spot, different tilt, every single
-frame. Face-Movie is the fix: what Picasa 3 used to do, kept alive with
-a modern toolchain.
-
-## How it works
-
-This is real face morphing — not a crossfade. The pipeline:
-
-1. **Detects 468 face landmarks** per image with MediaPipe Face Mesh
-2. **Aligns** each face onto a canonical pose with a Procrustes transform
-   (eyes, nose, and mouth corners are the anchors — robust across head tilt,
-   pose, and expression)
-3. **Triangulates** the mean face shape with Delaunay
-4. **Morphs** every consecutive pair via piecewise-affine warps over the
-   triangle mesh, plus a cross-dissolve in pixel space
-5. **Encodes** H.264 with the best hardware encoder available — `h264_videotoolbox`
-   on macOS, `h264_nvenc` / `h264_qsv` / `h264_amf` / `h264_v4l2m2m` on Linux,
-   or `libx264` if no HW path is present. MediaPipe also uses the GPU delegate
-   (Metal / OpenGL ES) for landmark detection when present. CPU-only systems
-   still work unchanged.
-
-A photo from 2016 visibly *becomes* a photo from 2024, instead of fading
-through a ghost.
-
-## Quick start
-
-### Docker — Web UI
+## Docker / Synology Container Manager
 
 ```bash
-docker run --rm -p 8080:8080 leachim2k/face-movie:latest web
+docker compose up --build -d
 ```
 
-Open <http://localhost:8080>, drop in a folder of selfies, watch the result.
-Photos never leave your machine — the container processes everything locally.
+The included `compose.yaml` exposes the Web UI on port **8098**:
 
-### Docker — CLI
+```text
+http://YOUR-NAS-IP:8098
+```
+
+No Python installation is required on the host when using Docker.
+
+## Settings
+
+| Setting | Meaning |
+|---|---|
+| Scale | Output resolution scale, `0.1`–`1.0` |
+| Frames pro Übergang | Number of morph frames between two included photos |
+| FPS | Output video frame rate |
+| Pause zwischen Morphings | Still time after a transition, in seconds. Internally `seconds × FPS` frames are generated. |
+| Dateiname einblenden | Burn the source filename into the video |
+| Nur frontale Gesichter | Keep the upstream front-facing filter enabled |
+
+## How face detection differs from upstream
+
+The original pipeline requests one MediaPipe face. This fork uses a review-oriented detector with multiple passes. Candidate detections are merged using bounding-box IoU so the UI can present several distinct faces without showing obvious duplicates.
+
+Detection enhancements are used only to locate landmarks. Morphing still uses the original source image. A manual crop is also reused during rendering so a face that was found only inside the crop does not disappear during the final pass.
+
+## Project structure
+
+```text
+face_select_extension.py   Extended detection, selection and pause integration
+main.py                    Upstream Face-Movie morphing pipeline
+webapp/server.py           Analyze/crop/render API
+webapp/static/index.html   Web UI
+Dockerfile                 Container based on the upstream image
+compose.yaml               NAS-friendly deployment example
+```
+
+## Upstream
+
+This project is based on **leachiM2k/face-movie**. The original project provides the face alignment, Delaunay triangulation, morphing and video encoding pipeline.
+
+Upstream repository: https://github.com/leachiM2k/face-movie
+
+When publishing this fork on GitHub, keep the upstream license and attribution from the original repository. GitHub's **Fork** button is preferable to creating an unrelated repository because it preserves the relationship to the upstream project.
+
+## Development
+
+Docker is the recommended development/runtime path. For native Python development, use the requirements supplied by the upstream project.
+
+Basic syntax check:
 
 ```bash
-docker run --rm -v "$PWD/payload:/app/payload" leachim2k/face-movie:latest
+python -m py_compile main.py face_select_extension.py webapp/server.py
 ```
 
-Drop your portraits into `payload/input/` first. The result lands at
-`payload/out_morphed.mp4`.
+## Status
 
-### Python
-
-```bash
-git clone https://github.com/leachiM2k/face-movie.git
-cd face-movie
-python3.12 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-
-python main.py                                                      # CLI
-uvicorn webapp.server:app --host 127.0.0.1 --port 8080              # Web UI
-```
-
-Three sample portraits ship in `payload/input/` so you can see output
-on the first run without supplying any photos of your own.
-
-## Options
-
-| Flag | Default | What it does |
-|------|---------|--------------|
-| `--input DIR` | `payload/input` | source folder of JPEG/PNG portraits |
-| `--video PATH` | `payload/out_morphed.mp4` | where to write the result |
-| `--scale N` | `1.0` | proportional scale on the auto-detected canvas (`0.5` = half-size) |
-| `--width N` / `--height N` | auto | override canvas dimensions explicitly |
-| `--frames-per-pair N` | `6` | morph frames between two photos — higher = slower transitions |
-| `--fps N` | `30` | output frame rate |
-| `--no-overlay` | off | disable the burned-in filename caption |
-| `--keep-aligned` | off | also dump aligned still frames (debug) |
-| `--encoder NAME` | auto | force a specific ffmpeg encoder (`libx264`, `h264_nvenc`, …) |
-| `--front-facing-only` | off | skip photos where the head is turned away from the camera |
-| `--max-head-tilt-deg N` | `20` | front-facing tolerance in degrees (only with `--front-facing-only`; 15° strict, 30° loose) |
-| `--halo-factor N` | `1.25` | extra anchor ring around the face for smoother face-edge morphing — `1.0` disables |
-
-The web UI exposes a **"Only include front-facing photos"** checkbox for
-the same filter, useful when cleaning up a large archive that mixes
-selfies with off-camera shots.
-
-Environment variable `FACE_MOVIE_DELEGATE=cpu` forces MediaPipe onto the CPU
-path — useful if the GPU delegate aborts on your driver/SDK combination.
-
-For 750 photos at default settings, expect 10–15 min on an M-series Mac.
-
-## What's under the hood
-
-Python 3.12 · MediaPipe Face Mesh · OpenCV · ffmpeg. No GPU. Native on
-macOS (Apple Silicon + Intel) and Linux (x86 + ARM).
-
-The 2.x rewrite replaced TensorFlow + dlib + face-recognition + MTCNN
-with MediaPipe alone, dropped the Docker image from ~1.5 GB to ~600 MB,
-and cut the build time from 14 min to ~2 min.
+This fork is intended for personal/local photo processing. The Web UI has no authentication; do not expose it directly to the public Internet.

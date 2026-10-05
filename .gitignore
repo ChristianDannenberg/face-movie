@@ -1,4 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.DS_Store
+Thumbs.db
 *.mp4
-payload/input/
-payload/output/
-*.pyc
+*.log
+payload/input/*
+!payload/input/.gitkeep
+payload/output/*
+!payload/output/.gitkeep

@@ -1,0 +1,19 @@
+services:
+  face-movie:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: face-movie-face-select:1.0
+    container_name: face-movie
+    command: web
+    ports:
+      - "8098:8080"
+    environment:
+      FACE_MOVIE_DELEGATE: cpu
+      PYTHONUNBUFFERED: "1"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
