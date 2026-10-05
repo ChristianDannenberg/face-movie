@@ -1,5 +1,12 @@
-.*
+.git
+.github
+__pycache__
+*.py[cod]
+.venv
+venv
+.env
 *.mp4
-payload/input/
-payload/output/
-*.pyc
+*.log
+Backup.zip
+payload/input/*
+payload/output/*
